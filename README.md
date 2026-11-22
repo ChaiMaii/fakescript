@@ -102,3 +102,7 @@ ask num say Enter your age  end into age
 - **`text`**: `upper`, `lower`, `trim`, `join`, `split`, `has`, `replace`, `fromnum`, `tonum`, `length`
 - **`file`**: `read`, `write`, `append`, `exists`
 - **`time`**: `now` (Unix ms), `sleep` (ms)
+
+## License
+
+Licensed under the [WTFPL](./LICENSE).
