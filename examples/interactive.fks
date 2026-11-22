@@ -1,0 +1,14 @@
+note interactive standard input demo
+
+import print
+import text
+
+fn main do
+    ask say Enter your name  end into name
+    ask num say Enter your birth year  end into year
+    let age be 2026 minus year
+    let loud be upper of text contains name
+    ln of print contains say Hello end and loud and say you are about end and age and say years old end
+end
+
+exec main

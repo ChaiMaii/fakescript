@@ -1,0 +1,30 @@
+note pure zero symbol fakescript program
+
+import print as print
+
+let printtrue be ln of print contains say true end
+let i be 0
+
+fn countup do
+    loop when i is under 5 do
+        ln of print contains i
+        set i to i plus 1
+    end
+end
+
+fn greet with user do
+    raw of print contains say welcome end
+    ln of print contains user
+end
+
+fn main do
+    printtrue
+    exec greet with say creator end
+    exec countup
+
+    if i is 5 do
+        ln of print contains say all done end
+    end
+end
+
+exec main
