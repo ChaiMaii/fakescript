@@ -2718,7 +2718,7 @@ func main() {
 				if exitErr, ok := err.(*exec.ExitError); ok {
 					os.Exit(exitErr.ExitCode())
 				}
-				fmt.Fprintf(os.Stderr, "\033[31mNative build failed: %v\033[0m\n", err)
+				fmt.Fprintf(os.Stderr, "\033[31mExecution failed: %v\033[0m\n", err)
 				os.Exit(1)
 			}
 			return
