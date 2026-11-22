@@ -2650,13 +2650,13 @@ func main() {
 	}
 
 	if !strings.HasSuffix(filePath, ".fks") {
-		fmt.Fprintf(os.Stderr, "Expected a .fks source file, got %q\n", filePath)
+		fmt.Fprintf(os.Stderr, "\033[31mExpected a .fks source file, got %q\033[0m\n", filePath)
 		os.Exit(1)
 	}
 
 	rawSrc, err := os.ReadFile(filePath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error reading file:", err)
+		fmt.Fprintf(os.Stderr, "\033[31mError reading file: %v\033[0m\n", err)
 		os.Exit(1)
 	}
 	src := string(rawSrc)
@@ -2680,14 +2680,14 @@ func main() {
 		stem := strings.TrimSuffix(filePath, ".fks")
 		tmpDir, err := os.MkdirTemp("", "fksc_build_*")
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Temp dir error:", err)
+			fmt.Fprintln(os.Stderr, "\033[31mTemp dir error: %v\033[0m\n", err)
 			os.Exit(1)
 		}
 		defer os.RemoveAll(tmpDir)
 
 		tmpGo := filepath.Join(tmpDir, "main.go")
 		if err := os.WriteFile(tmpGo, []byte(goCode), 0644); err != nil {
-			fmt.Fprintln(os.Stderr, "Write temp Go error:", err)
+			fmt.Fprintln(os.Stderr, "\033[31mWrite temp Go error: %v\033[0m\n", err)
 			os.Exit(1)
 		}
 
@@ -2705,7 +2705,7 @@ func main() {
 		buildCmd := exec.Command("go", "build", "-o", outBin, tmpGo)
 		buildCmd.Stderr = os.Stderr
 		if err := buildCmd.Run(); err != nil {
-			fmt.Fprintln(os.Stderr, "Native build failed:", err)
+			fmt.Fprintf(os.Stderr, "\033[31mNative build failed: %v\033[0m\n", err)
 			os.Exit(1)
 		}
 
@@ -2718,12 +2718,12 @@ func main() {
 				if exitErr, ok := err.(*exec.ExitError); ok {
 					os.Exit(exitErr.ExitCode())
 				}
-				fmt.Fprintln(os.Stderr, "Execution failed:", err)
+				fmt.Fprintf(os.Stderr, "\033[31mExecution failed: %v\033[0m\n", err)
 				os.Exit(1)
 			}
 			return
 		}
 
-		fmt.Printf("Compiled %s -> %s\n", filePath, outBin)
+		fmt.Printf("\033[1;32mCompiled\033[0m %s -> %s\n", filePath, outBin)
 	}
 }
