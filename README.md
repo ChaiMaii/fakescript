@@ -1,4 +1,6 @@
-# <img src="images/fakescript-logo.svg" height="32px" width="32px"> FakeScript (`.fks`) v3.0
+![FakeScript Banner](./banner.png)
+
+# <img src="images/fakescript-logo.svg" height="32px" width="32px"> FakeScript (`.fks`) v3.1
 
 An Ahead-of-Time (AOT) compiled programming language with **strictly zero punctuation symbols** in source code. `fksc` compiles `.fks` files through a full **Lexer → AST → Type Checker → Go CodeGen** pipeline into standalone native binaries with zero external dependencies.
 
