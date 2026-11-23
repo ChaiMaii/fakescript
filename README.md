@@ -1,4 +1,4 @@
-![FakeScript Banner](./banner.png)
+![FakeScript Banner](./images/banner.png)
 
 # <img src="images/fakescript-logo.svg" height="32px" width="32px"> FakeScript (`.fks`) v3.1
 
