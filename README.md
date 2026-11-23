@@ -1,4 +1,4 @@
-# FakeScript (`.fks`) v3.0
+# <img src="images/fakescript-logo.svg" height="32px" width="32px"> FakeScript (`.fks`) v3.0
 
 An Ahead-of-Time (AOT) compiled programming language with **strictly zero punctuation symbols** in source code. `fksc` compiles `.fks` files through a full **Lexer → AST → Type Checker → Go CodeGen** pipeline into standalone native binaries with zero external dependencies.
 
@@ -26,14 +26,19 @@ go test -v ./...
 
 ## Language Reference
 
-### Types & Literals
+<details>
+<summary>Types & Literals</summary>
+
 - `num` (`int64`): `0`, `42`, `negative 5`
 - `text` (`string`): `say hello world end`, `say end` (empty)
 - `flag` (`bool`): `true` / `yes`, `false` / `no`
 - `list of <type>` (`[]T`): `list of 1 and 2 and 3 end`, `empty list of text`
 - `action` (`func()`): lazy thunk created automatically when assigning a void call (`let greet be ln of print contains say hi end`)
+</details>
 
-### Variables & Lists
+<details>
+<summary>Variables & Lists</summary>
+
 ```text
 let score be 10
 let name as text be say Ada end
@@ -45,16 +50,23 @@ set item 1 of items to say blueberry end
 let first be item 0 of items
 let count be length of items
 ```
+</details>
 
-### Expressions & Precedence
+
+<details>
+<summary>Expressions & Precedence</summary>
+    
 - Grouping: `group <expr> done`
 - Unary: `negative <num>`, `not <flag>`
 - Multiplicative: `times`, `divided by` / `over`, `mod` / `remainder`
 - Additive: `plus` (num or text), `minus`
 - Comparisons: `is`, `is not`, `is under`, `is over`, `is at least`, `is at most`
 - Logical: `and`, `or`
+</details>
 
-### Control Flow
+<details>
+<summary>Control Flow</summary>
+    
 ```text
 if score is at least 90 do
     ln of print contains say A end
@@ -82,8 +94,12 @@ for each item in items do
     ln of print contains item
 end
 ```
+</details>
 
-### Functions & Input
+
+<details>
+<summary>Functions & Input</summary>
+
 ```text
 fn add with num a and num b returns num do
     give back a plus b
@@ -95,13 +111,17 @@ ask say Enter your name  end into username
 ask num say Enter your age  end into age
 ```
 *(Untyped parameters like `fn greet with user do` remain supported for v2.0 compatibility and default to `text`.)*
+</details>
 
-### Standard Library (`import <mod>` or `import <mod> as <alias>`)
+<details>
+<summary>Standard Library ('import <mod>' or 'import <mod> as <alias>')</summary>
+
 - **`print`**: `ln`, `raw` (variadic: `ln of print contains say score end and score`)
 - **`math`**: `abs`, `min`, `max`, `pow`, `sqrt`, `rand`, `clamp`
 - **`text`**: `upper`, `lower`, `trim`, `join`, `split`, `has`, `replace`, `fromnum`, `tonum`, `length`
 - **`file`**: `read`, `write`, `append`, `exists`
 - **`time`**: `now` (Unix ms), `sleep` (ms)
+</details>
 
 ## License
 
