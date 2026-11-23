@@ -2822,7 +2822,7 @@ func main() {
 	case "build", "run", "emit", "check":
 		cmd = os.Args[1]
 		if len(os.Args) < 3 {
-			fmt.Fprintf(os.Stderr, "Missing .fks file for '%s'\n", cmd)
+			fmt.Fprintf(os.Stderr, "\033[31mMissing .fks file for '%s'\033[0m\n", cmd)
 			os.Exit(1)
 		}
 		filePath = os.Args[2]
