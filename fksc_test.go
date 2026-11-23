@@ -252,3 +252,93 @@ func TestCompileErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestFkspmModulesImport(t *testing.T) {
+	projDir := t.TempDir()
+	fmtDir := filepath.Join(projDir, "fkspm_modules", "fmtutil")
+	greetDir := filepath.Join(projDir, "fkspm_modules", "greeter")
+	if err := os.MkdirAll(fmtDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(greetDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Transitive dependency: fmtutil
+	fmtSrc := `
+import text
+
+let tag be say FKS end
+
+fn wrap with text msg returns text do
+    give back tag plus say   end plus upper of text contains msg
+end
+`
+	if err := os.WriteFile(filepath.Join(fmtDir, "lib.fks"), []byte(fmtSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Direct dependency: greeter (imports fmtutil and also defines its own 'tag' global to test namespacing!)
+	greetSrc := `
+import print
+import fmtutil
+
+let tag be say hello end
+
+fn hello with text name returns text do
+    let raw be tag plus say   end plus name
+    give back wrap of fmtutil contains raw
+end
+
+fn announce with text name do
+    let msg be exec hello with name
+    ln of print contains msg
+end
+`
+	if err := os.WriteFile(filepath.Join(greetDir, "lib.fks"), []byte(greetSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Main program importing greeter as g
+	mainSrc := `
+import print
+import greeter as g
+
+let tag be say app end
+
+fn main do
+    let out be hello of g contains say world end
+    ln of print contains tag and out
+    let wave be announce of g contains say fkspm end
+    wave
+end
+
+exec main
+`
+	goCode, err := compileSourceInDir(mainSrc, projDir)
+	if err != nil {
+		t.Fatalf("compileSourceInDir failed: %v", err)
+	}
+
+	tmpGo := filepath.Join(projDir, "main.go")
+	if err := os.WriteFile(tmpGo, []byte(goCode), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ext := ""
+	if runtime.GOOS == "windows" {
+		ext = ".exe"
+	}
+	bin := filepath.Join(projDir, "app"+ext)
+	if out, err := exec.Command("go", "build", "-o", bin, tmpGo).CombinedOutput(); err != nil {
+		t.Fatalf("go build failed: %v\n%s\n%s", err, string(out), goCode)
+	}
+	outBytes, err := exec.Command(bin).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run failed: %v\n%s", err, string(outBytes))
+	}
+	got := strings.ReplaceAll(string(outBytes), "\r\n", "\n")
+	want := "app FKS HELLO WORLD\nFKS HELLO FKSPM\n"
+	if got != want {
+		t.Fatalf("got:\n%q\nwant:\n%q", got, want)
+	}
+}

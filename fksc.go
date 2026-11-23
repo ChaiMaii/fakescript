@@ -13,7 +13,7 @@ import (
 	"unicode"
 )
 
-const fkscVersion = "3.0.0"
+const fkscVersion = "3.1.0"
 
 // ============================================================================
 // 1. LEXER
@@ -245,10 +245,19 @@ func (t Type) GoType() string {
 	}
 }
 
+type ExtModule struct {
+	Name  string
+	Path  string
+	Prog  *Program
+	Funcs map[string]*FuncDecl
+}
+
 type Program struct {
-	Imports []*ImportStmt
-	Funcs   []*FuncDecl
-	Stmts   []Stmt
+	Imports    []*ImportStmt
+	Funcs      []*FuncDecl
+	Stmts      []Stmt
+	ExtModules map[string]*ExtModule
+	ExtOrder   []string
 }
 
 type Param struct {
@@ -1614,26 +1623,41 @@ var stdlibModules = map[string]map[string]ModMethodSig{
 }
 
 type Checker struct {
-	prog      *Program
-	funcs     map[string]*FuncDecl
-	global    *Scope
-	curRet    *Type
-	loopDepth int
+	prog       *Program
+	funcs      map[string]*FuncDecl
+	extModules map[string]*ExtModule
+	global     *Scope
+	curRet     *Type
+	loopDepth  int
 }
 
 func checkProgram(prog *Program) error {
+	// Type-check all external fkspm_modules first in dependency order
+	for _, modName := range prog.ExtOrder {
+		ext := prog.ExtModules[modName]
+		if err := checkSingleProgram(ext.Prog, prog.ExtModules); err != nil {
+			return fmt.Errorf("in module %q (%s): %w", modName, ext.Path, err)
+		}
+	}
+	return checkSingleProgram(prog, prog.ExtModules)
+}
+
+func checkSingleProgram(prog *Program, extModules map[string]*ExtModule) error {
 	c := &Checker{
-		prog:   prog,
-		funcs:  map[string]*FuncDecl{},
-		global: newScope(nil),
+		prog:       prog,
+		funcs:      map[string]*FuncDecl{},
+		extModules: extModules,
+		global:     newScope(nil),
 	}
 
 	// Pass 1: Validate imports and register all function signatures
 	for _, imp := range prog.Imports {
-		if _, ok := stdlibModules[imp.Module]; !ok {
+		_, isStd := stdlibModules[imp.Module]
+		_, isExt := extModules[imp.Module]
+		if !isStd && !isExt {
 			return &CompileError{
 				Line: imp.Line,
-				Msg:  fmt.Sprintf("unknown standard library module %q (available: print, math, text, file, time)", imp.Module),
+				Msg:  fmt.Sprintf("unknown module %q (not in stdlib or fkspm_modules/ — run 'fkspm add %s')", imp.Module, imp.Module),
 			}
 		}
 	}
@@ -2071,39 +2095,59 @@ func (c *Checker) checkExpr(expr Expr, scope *Scope) (Type, error) {
 		return fn.ReturnType, nil
 
 	case *ModCallExpr:
-		methods, ok := stdlibModules[e.ModName]
-		if !ok {
-			return Type{}, &CompileError{Line: e.Line, Msg: fmt.Sprintf("unknown module %q", e.ModName)}
-		}
-		sig, ok := methods[e.Method]
-		if !ok {
-			return Type{}, &CompileError{Line: e.Line, Msg: fmt.Sprintf("module %q has no method %q", e.ModName, e.Method)}
-		}
-		if sig.Variadic {
-			for _, arg := range e.Args {
+		if methods, ok := stdlibModules[e.ModName]; ok {
+			sig, ok := methods[e.Method]
+			if !ok {
+				return Type{}, &CompileError{Line: e.Line, Msg: fmt.Sprintf("module %q has no method %q", e.ModName, e.Method)}
+			}
+			if sig.Variadic {
+				for _, arg := range e.Args {
+					at, err := c.checkExpr(arg, scope)
+					if err != nil {
+						return Type{}, err
+					}
+					if at.Kind == TyVoid {
+						return Type{}, &CompileError{Line: arg.exprLine(), Msg: "cannot pass void expression as argument"}
+					}
+				}
+				return sig.Ret, nil
+			}
+			if len(e.Args) != len(sig.Args) {
+				return Type{}, &CompileError{Line: e.Line, Msg: fmt.Sprintf("%s of %s expects %d argument(s), got %d", e.Method, e.ModName, len(sig.Args), len(e.Args))}
+			}
+			for i, arg := range e.Args {
 				at, err := c.checkExpr(arg, scope)
 				if err != nil {
 					return Type{}, err
 				}
-				if at.Kind == TyVoid {
-					return Type{}, &CompileError{Line: arg.exprLine(), Msg: "cannot pass void expression as argument"}
+				if !sig.Args[i].Equal(at) {
+					return Type{}, &CompileError{Line: arg.exprLine(), Msg: fmt.Sprintf("argument %d to %s of %s expects %s, got %s", i+1, e.Method, e.ModName, sig.Args[i], at)}
 				}
 			}
 			return sig.Ret, nil
 		}
-		if len(e.Args) != len(sig.Args) {
-			return Type{}, &CompileError{Line: e.Line, Msg: fmt.Sprintf("%s of %s expects %d argument(s), got %d", e.Method, e.ModName, len(sig.Args), len(e.Args))}
-		}
-		for i, arg := range e.Args {
-			at, err := c.checkExpr(arg, scope)
-			if err != nil {
-				return Type{}, err
+
+		if ext, ok := c.extModules[e.ModName]; ok {
+			fn, ok := ext.Funcs[e.Method]
+			if !ok {
+				return Type{}, &CompileError{Line: e.Line, Msg: fmt.Sprintf("package %q has no function %q", e.ModName, e.Method)}
 			}
-			if !sig.Args[i].Equal(at) {
-				return Type{}, &CompileError{Line: arg.exprLine(), Msg: fmt.Sprintf("argument %d to %s of %s expects %s, got %s", i+1, e.Method, e.ModName, sig.Args[i], at)}
+			if len(e.Args) != len(fn.Params) {
+				return Type{}, &CompileError{Line: e.Line, Msg: fmt.Sprintf("%s of %s expects %d argument(s), got %d", e.Method, e.ModName, len(fn.Params), len(e.Args))}
 			}
+			for i, arg := range e.Args {
+				at, err := c.checkExpr(arg, scope)
+				if err != nil {
+					return Type{}, err
+				}
+				if !fn.Params[i].Type.Equal(at) {
+					return Type{}, &CompileError{Line: arg.exprLine(), Msg: fmt.Sprintf("argument %d to %s of %s expects %s, got %s", i+1, e.Method, e.ModName, fn.Params[i].Type, at)}
+				}
+			}
+			return fn.ReturnType, nil
 		}
-		return sig.Ret, nil
+
+		return Type{}, &CompileError{Line: e.Line, Msg: fmt.Sprintf("unknown module %q", e.ModName)}
 
 	case *ThunkExpr:
 		if _, err := c.checkExpr(e.Inner, scope); err != nil {
@@ -2141,30 +2185,54 @@ func goIdent(name string) string {
 }
 
 type CodeGen struct {
-	imports map[string]bool
-	helpers map[string]bool
+	imports    map[string]bool
+	helpers    map[string]bool
+	extModules map[string]*ExtModule
+	modPrefix  string
+	modGlobals map[string]bool
 }
 
-func generateGo(prog *Program) (string, error) {
-	g := &CodeGen{
-		imports: map[string]bool{},
-		helpers: map[string]bool{},
-	}
+func modSymbolPrefix(modName string) string {
+	return "fks_mod_" + strings.ReplaceAll(modName, "-", "_") + "_"
+}
 
-	var globalsBuf, funcsBuf, mainBuf strings.Builder
+func (g *CodeGen) varIdent(name string) string {
+	if g.modPrefix != "" && g.modGlobals[name] {
+		return g.modPrefix + goIdent(name)
+	}
+	return goIdent(name)
+}
+
+func (g *CodeGen) fnIdent(name string) string {
+	if g.modPrefix != "" {
+		return g.modPrefix + goIdent(name)
+	}
+	return goIdent(name)
+}
+
+func (g *CodeGen) emitProgramUnit(prog *Program, prefix string, globalsBuf, funcsBuf, initBuf *strings.Builder) {
+	prevPrefix, prevGlobals := g.modPrefix, g.modGlobals
+	g.modPrefix = prefix
+	g.modGlobals = map[string]bool{}
+	defer func() {
+		g.modPrefix = prevPrefix
+		g.modGlobals = prevGlobals
+	}()
 
 	// Package-level variable declarations for top-level let / ask
 	for _, stmt := range prog.Stmts {
 		switch s := stmt.(type) {
 		case *LetStmt:
-			globalsBuf.WriteString(fmt.Sprintf("var %s %s\n", goIdent(s.Name), s.ResolvedType.GoType()))
+			g.modGlobals[s.Name] = true
+			globalsBuf.WriteString(fmt.Sprintf("var %s %s\n", g.varIdent(s.Name), s.ResolvedType.GoType()))
 		case *AskStmt:
 			if s.IsNew {
+				g.modGlobals[s.Target] = true
 				t := TypeText
 				if s.WantNum {
 					t = TypeNum
 				}
-				globalsBuf.WriteString(fmt.Sprintf("var %s %s\n", goIdent(s.Target), t.GoType()))
+				globalsBuf.WriteString(fmt.Sprintf("var %s %s\n", g.varIdent(s.Target), t.GoType()))
 			}
 		}
 	}
@@ -2179,17 +2247,36 @@ func generateGo(prog *Program) (string, error) {
 		if fn.ReturnType.Kind != TyVoid {
 			ret = " " + fn.ReturnType.GoType()
 		}
-		funcsBuf.WriteString(fmt.Sprintf("func %s(%s)%s {\n", goIdent(fn.Name), strings.Join(params, ", "), ret))
+		funcsBuf.WriteString(fmt.Sprintf("func %s(%s)%s {\n", g.fnIdent(fn.Name), strings.Join(params, ", "), ret))
 		for _, st := range fn.Body {
-			g.emitStmt(&funcsBuf, st)
+			g.emitStmt(funcsBuf, st)
 		}
 		funcsBuf.WriteString("}\n\n")
 	}
 
-	// Main body (all top-level statements in exact source order)
+	// Top-level statements (in exact source order)
 	for _, st := range prog.Stmts {
-		g.emitStmt(&mainBuf, st)
+		g.emitStmt(initBuf, st)
 	}
+}
+
+func generateGo(prog *Program) (string, error) {
+	g := &CodeGen{
+		imports:    map[string]bool{},
+		helpers:    map[string]bool{},
+		extModules: prog.ExtModules,
+	}
+
+	var globalsBuf, funcsBuf, mainBuf strings.Builder
+
+	// Emit external fkspm_modules first (in dependency order)
+	for _, modName := range prog.ExtOrder {
+		ext := prog.ExtModules[modName]
+		g.emitProgramUnit(ext.Prog, modSymbolPrefix(modName), &globalsBuf, &funcsBuf, &mainBuf)
+	}
+
+	// Emit main program
+	g.emitProgramUnit(prog, "", &globalsBuf, &funcsBuf, &mainBuf)
 
 	// Assemble final Go source
 	var out strings.Builder
@@ -2233,7 +2320,7 @@ func (g *CodeGen) emitStmt(out *strings.Builder, stmt Stmt) {
 	switch s := stmt.(type) {
 	case *LetStmt:
 		if s.IsGlobal {
-			out.WriteString(fmt.Sprintf("%s = %s\n", goIdent(s.Name), g.emitExpr(s.Expr)))
+			out.WriteString(fmt.Sprintf("%s = %s\n", g.varIdent(s.Name), g.emitExpr(s.Expr)))
 		} else {
 			out.WriteString(fmt.Sprintf("var %s %s = %s\n", goIdent(s.Name), s.ResolvedType.GoType(), g.emitExpr(s.Expr)))
 			if !s.Used {
@@ -2242,13 +2329,13 @@ func (g *CodeGen) emitStmt(out *strings.Builder, stmt Stmt) {
 		}
 
 	case *SetStmt:
-		out.WriteString(fmt.Sprintf("%s = %s\n", goIdent(s.Name), g.emitExpr(s.Expr)))
+		out.WriteString(fmt.Sprintf("%s = %s\n", g.varIdent(s.Name), g.emitExpr(s.Expr)))
 
 	case *SetIndexStmt:
-		out.WriteString(fmt.Sprintf("%s[%s] = %s\n", goIdent(s.ListName), g.emitExpr(s.Index), g.emitExpr(s.Value)))
+		out.WriteString(fmt.Sprintf("%s[%s] = %s\n", g.varIdent(s.ListName), g.emitExpr(s.Index), g.emitExpr(s.Value)))
 
 	case *AppendStmt:
-		out.WriteString(fmt.Sprintf("%s = append(%s, %s)\n", goIdent(s.ListName), goIdent(s.ListName), g.emitExpr(s.Value)))
+		out.WriteString(fmt.Sprintf("%s = append(%s, %s)\n", g.varIdent(s.ListName), g.varIdent(s.ListName), g.emitExpr(s.Value)))
 
 	case *AskStmt:
 		g.imports["fmt"] = true
@@ -2335,7 +2422,7 @@ func (g *CodeGen) emitStmt(out *strings.Builder, stmt Stmt) {
 
 	case *ExprStmt:
 		if id, ok := s.Expr.(*IdentExpr); ok && id.ResolvedType.Kind == TyAction {
-			out.WriteString(fmt.Sprintf("%s()\n", goIdent(id.Name)))
+			out.WriteString(fmt.Sprintf("%s()\n", g.varIdent(id.Name)))
 		} else {
 			out.WriteString(g.emitExpr(s.Expr) + "\n")
 		}
@@ -2354,7 +2441,7 @@ func (g *CodeGen) emitExpr(expr Expr) string {
 		}
 		return "false"
 	case *IdentExpr:
-		return goIdent(e.Name)
+		return g.varIdent(e.Name)
 	case *UnaryExpr:
 		return fmt.Sprintf("(%s%s)", e.Op, g.emitExpr(e.Right))
 	case *BinaryExpr:
@@ -2374,7 +2461,7 @@ func (g *CodeGen) emitExpr(expr Expr) string {
 		for _, a := range e.Args {
 			args = append(args, g.emitExpr(a))
 		}
-		return fmt.Sprintf("%s(%s)", goIdent(e.Name), strings.Join(args, ", "))
+		return fmt.Sprintf("%s(%s)", g.fnIdent(e.Name), strings.Join(args, ", "))
 	case *ThunkExpr:
 		return fmt.Sprintf("func() { %s }", g.emitExpr(e.Inner))
 	case *ModCallExpr:
@@ -2480,6 +2567,11 @@ func (g *CodeGen) emitModCall(e *ModCallExpr) string {
 			return fmt.Sprintf("time.Sleep(time.Duration(%s) * time.Millisecond)", args[0])
 		}
 	}
+
+	// External fkspm_modules package call
+	if _, ok := g.extModules[e.ModName]; ok {
+		return fmt.Sprintf("%s%s(%s)", modSymbolPrefix(e.ModName), goIdent(e.Method), strings.Join(args, ", "))
+	}
 	return ""
 }
 
@@ -2581,7 +2673,90 @@ func fks_read_line() string {
 // 6. COMPILER PIPELINE & CLI
 // ============================================================================
 
+func findExternalModuleFile(baseDir, modName string) (string, bool) {
+	if baseDir == "" {
+		return "", false
+	}
+	// Walk up from baseDir looking for fkspm_modules/<modName>/
+	dir, err := filepath.Abs(baseDir)
+	if err != nil {
+		dir = baseDir
+	}
+	for {
+		modDir := filepath.Join(dir, "fkspm_modules", modName)
+		for _, candidate := range []string{"lib.fks", modName + ".fks", "main.fks"} {
+			p := filepath.Join(modDir, candidate)
+			if info, err := os.Stat(p); err == nil && !info.IsDir() {
+				return p, true
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	// Fallback: local sibling <modName>.fks in baseDir
+	local := filepath.Join(baseDir, modName+".fks")
+	if info, err := os.Stat(local); err == nil && !info.IsDir() {
+		return local, true
+	}
+	return "", false
+}
+
+func loadExternalModules(prog *Program, baseDir string, loaded map[string]*ExtModule, order *[]string, visiting map[string]bool) error {
+	for _, imp := range prog.Imports {
+		if _, isStd := stdlibModules[imp.Module]; isStd {
+			continue
+		}
+		if _, done := loaded[imp.Module]; done {
+			continue
+		}
+		if visiting[imp.Module] {
+			return &CompileError{Line: imp.Line, Msg: fmt.Sprintf("circular module import involving %q", imp.Module)}
+		}
+		modPath, found := findExternalModuleFile(baseDir, imp.Module)
+		if !found {
+			// Let the type checker report the clean unknown module error
+			continue
+		}
+		visiting[imp.Module] = true
+		raw, err := os.ReadFile(modPath)
+		if err != nil {
+			return fmt.Errorf("reading module %q (%s): %w", imp.Module, modPath, err)
+		}
+		toks, err := lex(string(raw))
+		if err != nil {
+			return fmt.Errorf("in module %q (%s): %w", imp.Module, modPath, err)
+		}
+		modProg, err := parse(toks)
+		if err != nil {
+			return fmt.Errorf("in module %q (%s): %w", imp.Module, modPath, err)
+		}
+		if err := loadExternalModules(modProg, filepath.Dir(modPath), loaded, order, visiting); err != nil {
+			return err
+		}
+		funcs := map[string]*FuncDecl{}
+		for _, fn := range modProg.Funcs {
+			funcs[fn.Name] = fn
+		}
+		loaded[imp.Module] = &ExtModule{
+			Name:  imp.Module,
+			Path:  modPath,
+			Prog:  modProg,
+			Funcs: funcs,
+		}
+		*order = append(*order, imp.Module)
+		delete(visiting, imp.Module)
+	}
+	return nil
+}
+
 func compileSource(src string) (string, error) {
+	return compileSourceInDir(src, "")
+}
+
+func compileSourceInDir(src, baseDir string) (string, error) {
 	tokens, err := lex(src)
 	if err != nil {
 		return "", err
@@ -2589,6 +2764,12 @@ func compileSource(src string) (string, error) {
 	prog, err := parse(tokens)
 	if err != nil {
 		return "", err
+	}
+	prog.ExtModules = map[string]*ExtModule{}
+	if baseDir != "" {
+		if err := loadExternalModules(prog, baseDir, prog.ExtModules, &prog.ExtOrder, map[string]bool{}); err != nil {
+			return "", err
+		}
 	}
 	if err := checkProgram(prog); err != nil {
 		return "", err
@@ -2661,7 +2842,7 @@ func main() {
 	}
 	src := string(rawSrc)
 
-	goCode, err := compileSource(src)
+	goCode, err := compileSourceInDir(src, filepath.Dir(filePath))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, formatErrorWithContext(filePath, src, err))
 		os.Exit(1)
