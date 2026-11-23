@@ -4,7 +4,21 @@
 
 An Ahead-of-Time (AOT) compiled programming language with **strictly zero punctuation symbols** in source code. `fksc` compiles `.fks` files through a full **Lexer → AST → Type Checker → Go CodeGen** pipeline into standalone native binaries with zero external dependencies.
 
-## Quick Start
+## Quick Install (`fksc` + `fkspm`)
+
+Requires Go 1.22+. Run the visual installer in one command:
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/ChaiMaii/fakescript/main/install.ps1 | iex
+```
+
+**Linux / macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/ChaiMaii/fakescript/main/install.sh | sh
+```
+
+## Quick Start (Build from Source)
 
 ```powershell
 # Build the compiler (Go standard library only)
