@@ -1,0 +1,9 @@
+note hello from the atmosphere
+
+import print
+
+fn main do
+	ln of print contains say Hello, World end
+end
+
+exec main
